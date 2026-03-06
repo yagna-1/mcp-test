@@ -1,0 +1,37 @@
+name: Test Plugin Compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+        plugin:
+          - ""
+          - "pytest-asyncio"
+          - "pytest-cov"
+          - "pytest-xdist"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install mcp-test
+        run: pip install -e .
+
+      - name: Install additional plugin
+        if: matrix.plugin != ''
+        run: pip install ${{ matrix.plugin }}
+
+      - name: Run tests
+        run: pytest tests/ -v
