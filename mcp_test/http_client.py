@@ -124,7 +124,7 @@ class HTTPMCPTestClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._headers = headers or {}
-        self._httpx = _require_httpx()
+        self._httpx: Any = None
         self._client: Any = None
         self._id_counter = 0
         self._called_tools: set[str] = set()
@@ -163,6 +163,7 @@ class HTTPMCPTestClient:
 
 
     def start(self) -> HTTPMCPTestClient:
+        self._httpx = _require_httpx()
         merged_headers = dict(self._headers)
         merged_headers["Accept"] = "application/json, text/event-stream"
         merged_headers["MCP-Protocol-Version"] = self.PROTOCOL_VERSION

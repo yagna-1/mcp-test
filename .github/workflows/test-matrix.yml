@@ -27,7 +27,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install mcp-test
-        run: pip install -e .
+        run: pip install -e ".[all]"
 
       - name: Install additional plugin
         if: matrix.plugin != ''
