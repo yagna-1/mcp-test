@@ -22,6 +22,8 @@ from .types import (
     ToolSchema,
 )
 from .assertions import (
+    assert_policy_allows,
+    assert_policy_blocks,
     assert_tool_content_count,
     assert_tool_error,
     assert_tool_error_code,
@@ -82,6 +84,8 @@ __all__ = [
     "assert_tool_text_contains",
     "assert_tool_text_equals",
     "assert_tool_content_count",
+    "assert_policy_allows",
+    "assert_policy_blocks",
     "assert_task_completes_within",
     "assert_task_cancelled",
     "assert_task_failed",
