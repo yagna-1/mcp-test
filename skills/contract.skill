@@ -1,0 +1,4 @@
+name: contract
+description: Run MCP contract test suite
+command: pytest tests -q
+auto_commit_memory: true

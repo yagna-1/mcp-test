@@ -1,0 +1,5 @@
+name: fixtures
+description: Validate MCP fixtures and helper clients
+command: pytest tests -k fixture -q
+auto_commit_memory: true
+on_failure: hooks/on-failure.sh

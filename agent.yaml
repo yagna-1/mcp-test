@@ -1,0 +1,27 @@
+name: mcp-test
+version: 1.0.0
+model: claude-sonnet-4-6
+
+identity:
+  policy_id: mcp-test-default
+  namespace: mcp-test
+  workflow_id_prefix: mt-
+
+tools:
+  - name: run-contract-tests
+    endpoint: local://pytest/mcp-test
+
+skills:
+  - contract
+  - policy
+  - fixtures
+
+hooks:
+  pre-run: hooks/pre-run.sh
+  post-run: hooks/post-run.sh
+
+memory:
+  path: memory/
+  auto_commit: true
+  commit_message: "agent: auto-commit {skill} trace at {timestamp}"
+  human_review: pr

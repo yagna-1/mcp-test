@@ -1,0 +1,5 @@
+name: policy
+description: Run policy-focused assertions for allow/block behavior
+command: pytest tests -k policy -q
+auto_commit_memory: true
+produces: [memory/astragraph-audits/]
