@@ -2,6 +2,15 @@
 
 All notable changes to `pytest-mcp-plugin` are documented here.
 
+## [0.2.1] — 2026-05-05
+
+### Changed
+
+- Lowered minimum Python from `>=3.11` to `>=3.10`. The codebase already had a
+  `tomllib` → `tomli` fallback for 3.10 in `runner.py`; this release makes that
+  fallback an explicit conditional dependency and unblocks adoption in projects
+  that target 3.10 (e.g. `qdrant/mcp-server-qdrant`).
+
 ## [0.2.0] — 2026-05-05
 
 ### Renamed
