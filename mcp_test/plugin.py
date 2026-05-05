@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from .client import MCPTestClient, make_client
+from .client import make_client
 from .runner import discover_method_timeouts
 from .snapshot import Snapshot, SNAPSHOT_DIR
 from .timeouts import parse_timeout_overrides

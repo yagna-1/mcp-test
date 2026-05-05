@@ -3,6 +3,7 @@ name: Publish to PyPI
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -10,20 +11,40 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install build tools
-        run: pip install build
+        run: pip install build twine
 
-      - name: Build package
-        run: python -m build
+      - name: Build
+        run: |
+          rm -rf dist
+          python -m build --sdist --wheel
+          twine check dist/*
 
-      - name: Publish to PyPI
+      # Prefer Trusted Publishing if configured (id-token: write above).
+      # Falls back to a PYPI_API_TOKEN secret if Trusted Publishing exchange
+      # fails, so the workflow stays useful while the PyPI side is being
+      # configured. Maintainers configure either path and forget the other.
+      - name: Publish via Trusted Publishing
+        id: publish-oidc
+        continue-on-error: true
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Publish via API token (fallback)
+        if: steps.publish-oidc.outcome == 'failure'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "$TWINE_PASSWORD" ]; then
+            echo "PYPI_API_TOKEN secret is not set; cannot fall back from Trusted Publishing." >&2
+            exit 1
+          fi
+          twine upload dist/*

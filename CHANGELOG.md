@@ -2,6 +2,62 @@
 
 All notable changes to `pytest-mcp-plugin` are documented here.
 
+## [0.3.0] — 2026-05-05
+
+The "flagship" release: real CI, real conformance proof, real security
+test packs.
+
+### Added
+
+- **Anthropic conformance suite in CI.** Every PR runs
+  `npx @modelcontextprotocol/conformance server --suite active` against the
+  bundled FastMCP HTTP demo server, gated by `conformance-baseline.yml`.
+  Unexpected failures (anything not in the baseline) fail the build; stale
+  baseline entries also fail. The current baseline is locked against
+  Anthropic's `@v0.1.11` action.
+- **Bundled HTTP demo server** (`python -m mcp_test._demo_server_http`) —
+  FastMCP-backed Streamable-HTTP server used by the conformance job and the
+  new HTTP-transport tests. Lives in `mcp_test/_demo_server_http.py`.
+- **Streamable-HTTP transport conformance tests** (`tests/test_streamable_http_conformance.py`):
+  initialize handshake, `Mcp-Session-Id` lifecycle (server assigns on init,
+  client echoes thereafter, init must NOT include it), tool round-trip,
+  protocol-version negotiation, session termination via DELETE.
+- **Batteries-included security test packs** in `mcp_test/test_packs.py`:
+    * `FilesystemServerTests`: 6 assertions — sandbox advertised tools,
+      resources stay inside root, safe-path readability, path-traversal
+      rejection (Unix + Windows + URL-encoded payloads), absolute-path
+      rejection, list-tool traversal probe.
+    * `DatabaseServerTests`: read-only-tools-don't-mutate, SQL-injection
+      neutralisation via mutation-probe diffing.
+    * `APIWrapperTests`: auth-required-tools-fail-without-creds,
+      no-secret-leakage-in-outputs.
+    * `ShellExecTests`: happy-path success, non-zero-exit surfacing,
+      disallowed-command rejection, AND a canary-based shell-metacharacter
+      injection probe (the only honest way to detect `shell=True` injection).
+- **Reference example servers** that pass each pack: `examples/{filesystem,
+  database,api_wrapper,shell_exec}_server/` with rewritten sandbox-safe
+  filesystem server, sqlite-backed read-only database server, credentialed
+  API-wrapper server, and allowlist-based shell-exec server. Each ships
+  with a test file demonstrating pack subclassing.
+- **Real GitHub Actions CI**: matrix tests (Python 3.10/3.11/3.12/3.13 ×
+  Ubuntu/macOS), pytest-plugin compatibility matrix, `ruff` lint job,
+  Anthropic-conformance job, and a publish-on-tag workflow that prefers
+  Trusted Publishing with a PYPI_API_TOKEN fallback.
+
+### Fixed
+
+- **HTTP client now follows redirects** (`follow_redirects=True`).
+  Previously, FastMCP servers that canonicalise the endpoint URL with a 307
+  (e.g. `/mcp` → `/mcp/`) would crash the client and falsely demote it to
+  legacy SSE mode. The streamable-vs-SSE auto-fallback is now restricted to
+  unambiguous transport-mismatch signals (404/405 on POST), not any
+  exception.
+
+### Changed
+
+- Honest README rewrite — removed vapor, added the conformance badge,
+  surfaced the test packs as a top-level section, linked to each example.
+
 ## [0.2.3] — 2026-05-05
 
 ### Fixed

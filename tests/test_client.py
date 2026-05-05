@@ -9,7 +9,6 @@ import time
 import pytest
 
 from mcp_test import (
-    MCPTestClient,
     MCPServerCrash,
     MCPTimeoutError,
     make_client,

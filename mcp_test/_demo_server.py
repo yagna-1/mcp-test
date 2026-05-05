@@ -16,7 +16,7 @@ import sys
 from typing import Any
 
 SERVER_NAME = "mcptest-demo"
-SERVER_VERSION = "0.2.3"
+SERVER_VERSION = "0.3.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS = [

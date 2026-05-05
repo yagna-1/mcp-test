@@ -1,4 +1,3 @@
-import pytest
 from mcp_test.auth import (
     generate_pkce_pair,
     parse_www_authenticate,
@@ -11,7 +10,8 @@ from mcp_test.types import MCPAuthRequired, MCPForbiddenError
 
 
 def test_pkce_pair_generation():
-    import hashlib, base64
+    import hashlib
+    import base64
     verifier, challenge = generate_pkce_pair()
     assert len(verifier) >= 43
     assert len(verifier) <= 128

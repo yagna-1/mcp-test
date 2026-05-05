@@ -143,7 +143,6 @@ def test_initialize_handshake_sends_initialized_notification():
     FastMCP-backed servers reject all later requests with -32602 until they
     receive it, so MCPTestClient must send it as part of start().
     """
-    trace_path = None
     with make_client(SERVER_CMD, timeout=5.0) as client:
         recent = client.wire_trace.recent()
 

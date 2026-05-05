@@ -1,0 +1,62 @@
+# Anthropic MCP Conformance Suite baseline for the bundled demo server
+# (`python -m mcp_test._demo_server_http`).
+#
+# Format defined by @modelcontextprotocol/conformance:
+#   https://github.com/modelcontextprotocol/conformance#expected-failures
+#
+# CI runs the conformance suite against the demo server on every PR and
+# passes this file via `--expected-failures`. New unexpected failures fail
+# the job loudly; fixed scenarios that are still listed here also fail (so
+# we can't accidentally hide regressions or stale entries).
+#
+# To raise the bar: implement the missing capability in
+# `mcp_test/_demo_server_http.py`, re-run the suite locally, then remove
+# the corresponding entry below.
+
+server:
+  # Scenarios the minimal demo server intentionally does not implement.
+  # Each is a feature the demo intentionally omits to keep it tiny; full
+  # FastMCP servers (e.g. official mcp-server-* implementations) implement
+  # most of these and pass.
+
+  # Demo server has no completion provider.
+  - completion-complete
+
+  # Demo server returns plain text only — no image / audio / embedded
+  # resources / mixed content.
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+
+  # Demo server's tools don't emit log notifications during execution.
+  - tools-call-with-logging
+
+  # Demo server's tools don't emit progress notifications.
+  - tools-call-with-progress
+
+  # Demo server doesn't issue sampling requests back to the client.
+  - tools-call-sampling
+
+  # Demo server doesn't issue elicitation requests back to the client.
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+
+  # Demo server exposes no resources.
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - resources-subscribe
+  - resources-unsubscribe
+
+  # Demo server exposes no prompts.
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+
+  # FastMCP's HTTP transport doesn't currently implement DNS-rebinding
+  # protection (one of the two sub-checks of this scenario passes; one
+  # fails). Tracking upstream — see https://github.com/jlowin/fastmcp.
+  - dns-rebinding-protection

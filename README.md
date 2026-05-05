@@ -4,34 +4,40 @@
 
 [![PyPI](https://img.shields.io/pypi/v/pytest-mcp-plugin.svg)](https://pypi.org/project/pytest-mcp-plugin/)
 [![Python](https://img.shields.io/pypi/pyversions/pytest-mcp-plugin.svg)](https://pypi.org/project/pytest-mcp-plugin/)
+[![CI](https://github.com/yagna-1/mcp-test/actions/workflows/ci.yml/badge.svg)](https://github.com/yagna-1/mcp-test/actions/workflows/ci.yml)
+[![Conformance](https://img.shields.io/badge/MCP%20conformance-baseline%20locked-brightgreen)](./conformance-baseline.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ```bash
 pip install pytest-mcp-plugin
-mcp-test demo            # runs a bundled MCP server + tests in 5 seconds
+mcp-test demo       # runs a bundled MCP server + tests in 5 seconds
 ```
 
-> **Note on the name.** This package is published on PyPI as `pytest-mcp-plugin`.
-> The `mcp-test` name on PyPI is reserved by Anthropic for their official MCP
-> SDK, and PyPI's name-similarity policy blocks close variants like `mcptest`.
-> The CLI binary is still `mcp-test`, and the Python module is still `mcp_test`.
+> **About the name.** This package is `pytest-mcp-plugin` on PyPI. The
+> `mcp-test` name is reserved by Anthropic for their official MCP SDK, and
+> PyPI's name-similarity policy blocks close variants. The CLI binary is still
+> `mcp-test`, the Python module is still `mcp_test`.
 
 ---
 
-## Why
+## Why this exists
 
-MCP (Model Context Protocol) is the standard interface every AI agent now uses
-to talk to tools, files, databases, and APIs. Thousands of teams are shipping
-MCP servers in 2026. **Almost none of them are tested.**
+MCP servers turn LLM output into real-world side-effects: file reads, SQL
+queries, HTTP calls, shell commands. Most of them ship with zero automated
+tests. `pytest-mcp-plugin` is the missing test harness:
 
-`pytest-mcp-plugin` fixes that. Write tests for your MCP tools, resources, and prompts
-with the same developer experience you expect from `pytest`.
-
-- `pytest` plugin with auto-registered fixtures
-- stdio and HTTP/SSE transports
-- Schema validation, snapshot testing, coverage reports
-- Auth + policy assertions
-- Drop-in GitHub Action
+* **Real protocol coverage** — runs against Anthropic's own
+  [`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
+  suite in CI on every PR. Our bundled demo server passes the suite modulo
+  features it intentionally doesn't implement (locked in
+  [`conformance-baseline.yml`](./conformance-baseline.yml)).
+* **Batteries-included security packs** — opt-in mixin classes that test
+  path traversal, SQL injection, credential leakage, and shell-metacharacter
+  injection against your server with one subclass declaration.
+* **stdio + Streamable-HTTP** — same fixtures, same assertions, both
+  transports. Includes an in-process FastMCP harness for sub-second tests.
+* **Built for CI** — pytest-native, JUnit XML output, automatic wire-trace
+  dumps on CI failure, `mcp-test` GitHub Action for one-line integration.
 
 ---
 
@@ -42,14 +48,10 @@ pip install pytest-mcp-plugin
 mcp-test demo
 ```
 
-That spins up a bundled MCP server and runs a real test suite against it —
-no setup, no API keys, no servers to write first.
+That spins up a bundled stdio MCP server and runs a real test suite against it
+— no setup, no API keys, no servers to write first.
 
 ```text
-🚀 mcp-test demo
-   server  : python -m mcp_test._demo_server
-   workdir : /tmp/mcptest-demo-xxxx
-
 test_demo.py::test_lists_tools         PASSED
 test_demo.py::test_echo                PASSED
 test_demo.py::test_add                 PASSED
@@ -58,6 +60,14 @@ test_demo.py::test_fail_returns_error  PASSED
 
 ✅ Demo passed. Now write tests for your own MCP server:
    mcp-test init
+```
+
+For HTTP / FastMCP servers:
+
+```bash
+pip install 'pytest-mcp-plugin[fastmcp]'
+python -m mcp_test._demo_server_http &     # boots on :8765
+mcp-test conformance --url http://127.0.0.1:8765/mcp
 ```
 
 ---
@@ -76,17 +86,20 @@ Or pin the command in your `pyproject.toml`:
 [tool.mcp-test]
 command = "python my_server.py"
 timeout = 10
-
-[tool.mcp-test.timeouts]
-"tools/list" = 5
-"tools/call" = 30
-"sampling/createMessage" = 60
 ```
 
-…and just run:
+…then just run:
 
 ```bash
 mcp-test run
+```
+
+For per-method timeouts, prefer the built-in smart defaults:
+
+```bash
+mcp-test run --smart-timeouts
+# or list explicit overrides:
+pytest --mcp-timeout-method "tools/call=30" --mcp-timeout-method "sampling/createMessage=120"
 ```
 
 ---
@@ -116,6 +129,59 @@ def test_search_schema(mcp_client):
     assert search.properties["query"]["type"] == "string"
 ```
 
+---
+
+## Batteries-included security test packs
+
+If your server fits one of these shapes, you get 4–8 production-grade
+security assertions for free by subclassing one mixin:
+
+| Pack | Catches |
+|---|---|
+| [`FilesystemServerTests`](./examples/filesystem_server/) | path traversal, absolute-path acceptance, sandbox escape via symlinks, resource scope creep |
+| [`DatabaseServerTests`](./examples/database_server/) | read-only tools that quietly mutate, SQL injection via parameter concatenation |
+| [`APIWrapperTests`](./examples/api_wrapper_server/) | tools that call upstream anonymously without configured creds, API-key leakage in tool output |
+| [`ShellExecTests`](./examples/shell_exec_server/) | `shell=True` injection (canary-probed), allowlist bypass, hidden non-zero exits |
+
+Each pack ships with a worked-example demo server that passes the pack —
+look in `examples/<server>/` for the reference implementation and the
+test file that opts in. Copy-paste-modify is the intended workflow.
+
+```python
+from mcp_test.test_packs import FilesystemServerTests
+
+class TestMyFsServer(FilesystemServerTests):
+    expected_tools = ("read_file", "list_directory")
+    read_tool = "read_file"
+    list_tool = "list_directory"
+    safe_path = "data/known-good.txt"
+    # That's it — you now have 5 security tests.
+```
+
+---
+
+## MCP spec conformance
+
+`pytest-mcp-plugin` runs Anthropic's official
+[`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
+suite against the bundled demo server on every PR. The current
+expected-failures baseline (features the minimal demo doesn't implement) is
+locked in [`conformance-baseline.yml`](./conformance-baseline.yml); any
+unexpected failure in CI fails the build.
+
+To run the suite against *your* server:
+
+```bash
+mcp-test conformance --url http://127.0.0.1:8765/mcp
+# or for a stdio server through the bridge:
+mcp-test conformance --command "python my_server.py"
+```
+
+Add `--offline` to skip the `npx` round-trip and run our local smoke
+scenarios only.
+
+---
+
 ## Use as a library
 
 ```python
@@ -129,11 +195,35 @@ with MCPTestClient.from_command("python my_server.py") as client:
     print(result.text())
 ```
 
+For HTTP / Streamable-HTTP:
+
+```python
+from mcp_test.http_client import HTTPMCPTestClient
+
+with HTTPMCPTestClient.from_url("http://127.0.0.1:8765/mcp") as client:
+    print(client.list_tools().names())
+```
+
+For FastMCP apps, skip the subprocess entirely:
+
+```python
+from fastmcp import FastMCP
+from mcp_test.fastmcp import FastMCPHarness
+
+app = FastMCP("my-server")
+
+@app.tool()
+def echo(msg: str) -> str: return msg
+
+with FastMCPHarness(app) as client:
+    assert client.call_tool("echo", msg="hi").text() == "hi"
+```
+
 ---
 
 ## Run on every PR (GitHub Action)
 
-`pytest-mcp-plugin` ships as a composite action you can drop into any repo:
+Drop this into any repo:
 
 ```yaml
 # .github/workflows/mcp-tests.yml
@@ -149,14 +239,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: yagna-1/mcp-test@v0.2.0
+      - uses: yagna-1/mcp-test@v0.3.0
         with:
           command: "python my_server.py"
           test-dir: "tests"
 ```
 
-That's it. The action installs `pytest-mcp-plugin`, runs your suite against your MCP
-server, and posts a JUnit XML report.
+The action installs `pytest-mcp-plugin`, runs your suite against your MCP
+server, and uploads a JUnit XML report. On failures, it also uploads any
+wire-trace dumps from `mcp-traces/`.
 
 ---
 
@@ -170,7 +261,7 @@ server, and posts a JUnit XML report.
 | `mcp-test snapshot -c "..."` | Run snapshot tests (`--update` to refresh) |
 | `mcp-test coverage -c "..."` | Print coverage report (tools/prompts/resources) |
 | `mcp-test validate -c "..."` | Validate tool input schemas |
-| `mcp-test conformance --url "..."` | Run the upstream MCP conformance suite through `npx` |
+| `mcp-test conformance --url "..."` | Run Anthropic's conformance suite via `npx` (or `--offline`) |
 | `mcp-test bench -c "..."` | Run lightweight p50/p95/p99 regression probes |
 
 All commands accept `--help` for full options.
@@ -179,7 +270,7 @@ All commands accept `--help` for full options.
 
 ## Fixtures
 
-The pytest plugin auto-registers three fixtures:
+The pytest plugin auto-registers four fixtures:
 
 | Fixture | Scope | Use for |
 |---|---|---|
@@ -194,16 +285,14 @@ pytest --mcp-command "python my_server.py" --mcp-timeout 15 \
   --mcp-trace .mcp-test/trace.jsonl
 ```
 
-`--mcp-timeout-method METHOD=SECONDS` may be passed multiple times, and the
-same values can live in `[tool.mcp-test.timeouts]`. `--mcp-trace` records JSONL
-wire frames; in CI, failing tests also dump recent frames to `mcp-traces/`.
+`--mcp-timeout-method METHOD=SECONDS` may be passed multiple times. On CI,
+failing tests automatically dump recent JSONL wire frames to `mcp-traces/`.
 
-Use `mcp-test conformance --url ... --pytest-items` when you want each parsed
-upstream scenario re-emitted as a normal pytest test item.
+---
 
 ## Spec-version markers
 
-Mark tests by required MCP spec version; the plugin auto-skips tests against
+Mark tests by required MCP spec version; the plugin auto-skips them against
 older servers.
 
 ```python
@@ -214,7 +303,10 @@ def test_uses_recent_feature(mcp_client):
     ...
 ```
 
-Available markers: `mcp_v2`, `mcp_v3`, `mcp_v4`.
+Available markers: `mcp_v2` (≥ 2025-03-26), `mcp_v3` (≥ 2025-06-18),
+`mcp_v4` (≥ 2025-11-25).
+
+---
 
 ## Assertion helpers
 
@@ -238,48 +330,49 @@ from mcp_test import (
 
 ## Architecture
 
-`pytest-mcp-plugin` runs your MCP server as a subprocess and speaks JSON-RPC 2.0 over
-stdio (or HTTP/SSE for the HTTP transport). A background message pump handles
-response routing, notification dispatching, and concurrent request support —
-so your tests just work.
-
-Source modules:
+`pytest-mcp-plugin` runs your MCP server as a subprocess (stdio) or speaks
+Streamable-HTTP to a running endpoint, all over JSON-RPC 2.0. A background
+message pump handles response routing, notification dispatching, and
+concurrent request support.
 
 ```
 mcp_test/
-  client.py            # stdio JSON-RPC client
-  http_client.py       # HTTP + SSE client
-  plugin.py            # pytest plugin (fixtures, options, markers)
-  cli.py               # mcp-test CLI
-  assertions.py        # assert_tool_*, assert_policy_*, assert_task_*
-  schema_validator.py  # JSON Schema validation for tool inputs
-  coverage.py          # tools/prompts/resources coverage tracker
-  snapshot.py          # snapshot testing
-  auth.py              # OAuth / PKCE / RFC 9728 helpers
-  bench.py             # lightweight regression benchmark probes
-  conformance.py       # bridge to @modelcontextprotocol/conformance
-  compliance.py        # conformance score helpers
-  fastmcp.py           # in-process FastMCP harness adapter
-  replay.py            # deterministic wire-trace replay lookup
-  pagination.py        # cursor pagination helpers
-  test_packs.py        # reusable server-shape test packs
-  timeouts.py          # per-method timeout policy
-  wire_trace.py        # JSONL wire trace recorder
-  types.py             # ToolResult, ToolSchema, MCPError, ...
-  _demo_server.py      # bundled demo server (used by `mcp-test demo`)
+  client.py              # stdio JSON-RPC client
+  http_client.py         # Streamable-HTTP + legacy-SSE client
+  plugin.py              # pytest plugin (fixtures, options, markers)
+  cli.py                 # mcp-test CLI
+  assertions.py          # assert_tool_*, assert_policy_*, assert_task_*
+  schema_validator.py    # JSON Schema validation for tool inputs
+  coverage.py            # tools/prompts/resources coverage tracker
+  snapshot.py            # snapshot testing
+  auth.py                # OAuth / PKCE / RFC 9728 helpers
+  bench.py               # lightweight regression benchmark probes
+  conformance.py         # bridge to @modelcontextprotocol/conformance
+  compliance.py          # conformance score helpers
+  fastmcp.py             # in-process FastMCP harness adapter
+  otel.py                # optional OpenTelemetry tracing facade
+  replay.py              # deterministic wire-trace replay
+  pagination.py          # cursor pagination helpers
+  test_packs.py          # batteries-included security test packs
+  timeouts.py            # per-method timeout policy
+  wire_trace.py          # JSONL wire trace recorder
+  types.py               # ToolResult, ToolSchema, MCPError, ...
+  _demo_server.py        # bundled stdio demo server
+  _demo_server_http.py   # bundled FastMCP HTTP demo server
 ```
+
+---
 
 ## Status
 
-`pytest-mcp-plugin` is **beta**. The CLI surface and plugin API are stable; minor
-internals (schema validator details, snapshot format) may still change.
+`pytest-mcp-plugin` is **beta**. The CLI surface, plugin API, and test-pack
+class attributes are stable; minor internals (snapshot format, schema
+validator details) may still change before 1.0.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for what's next, what we explicitly won't build,
-and how we plan to complement (not compete with) Anthropic's official
-[`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
-and [`@modelcontextprotocol/inspector`](https://github.com/modelcontextprotocol/inspector).
+See [ROADMAP.md](ROADMAP.md) for what's next and how we plan to complement
+— not compete with — Anthropic's official conformance + inspector tools.
 
 ## Contributing
 

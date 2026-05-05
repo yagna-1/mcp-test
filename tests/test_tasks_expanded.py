@@ -1,5 +1,4 @@
 import pytest
-import time
 
 
 def test_task_input_required_state(mcp_client):

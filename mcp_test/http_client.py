@@ -23,7 +23,6 @@ from .types import (
     ResourceContent,
     Prompt,
 )
-from .auth import build_auth_headers, parse_www_authenticate
 from .wire_trace import WireTrace
 
 
@@ -38,6 +37,19 @@ def _require_httpx():
         raise MCPClientError(
             "httpx is required for HTTP transport. Install with: pip install pytest-mcp-plugin[http]"
         )
+
+
+def _looks_like_streamable_unsupported(exc: BaseException) -> bool:
+    """Heuristic: did the failure look like 'this URL doesn't speak Streamable HTTP'?
+
+    We only flip to legacy SSE when the streamable POST is clearly rejected as
+    a transport mismatch. 5xx, 4xx auth, redirects, JSON parse errors etc. are
+    real failures the user should see, not signals to silently re-handshake on
+    a different transport.
+    """
+    msg = str(exc)
+    # Patterns produced by _request() above.
+    return any(token in msg for token in ("HTTP error 404", "HTTP error 405"))
 
 
 # ── SSE parser ────────────────────────────────────────────────────────────
@@ -197,13 +209,27 @@ class HTTPMCPTestClient:
             base_url=self._base_url,
             timeout=self._timeout,
             headers=merged_headers,
+            # Many real-world MCP servers (FastMCP, Starlette w/ trailing-slash
+            # redirects, reverse proxies) issue 301/307 to canonicalise the
+            # endpoint URL. Following redirects keeps the client robust without
+            # forcing every caller to know the canonical form.
+            follow_redirects=True,
         )
 
         if self._transport == TransportMode.AUTO:
             try:
                 self._resolved_transport = TransportMode.STREAMABLE
                 self._do_initialize()
-            except (MCPClientError, Exception):
+            except MCPAuthRequired:
+                # Auth failures are real auth failures, not "wrong transport".
+                raise
+            except (MCPClientError, MCPTimeoutError) as exc:
+                # Only fall back to legacy SSE when the streamable path is
+                # clearly unsupported (404/405 on POST, or no JSON response).
+                # A 307 redirect, a 5xx, or an auth failure should never
+                # silently switch transports.
+                if not _looks_like_streamable_unsupported(exc):
+                    raise
                 self._resolved_transport = TransportMode.LEGACY_SSE
                 self._start_legacy_sse()
                 self._do_initialize()
@@ -224,7 +250,7 @@ class HTTPMCPTestClient:
                 "sampling": {},
                 "roots": {"listChanged": True},
             },
-            "clientInfo": {"name": "mcp-test", "version": "0.2.3"},
+            "clientInfo": {"name": "mcp-test", "version": "0.3.0"},
         })
 
         result = response.get("result", {})

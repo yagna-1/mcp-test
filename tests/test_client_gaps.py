@@ -1,5 +1,3 @@
-import pytest
-from mcp_test import MCPTestClient
 
 def test_pagination_helpers(mcp_client):
     c = mcp_client

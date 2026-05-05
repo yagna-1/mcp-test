@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import sys
 
-import pytest
 
 from mcp_test import make_client
 from mcp_test.coverage import CoverageTracker, CoverageReport, PrimitiveCoverage, print_coverage_report

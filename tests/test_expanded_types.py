@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_audio_tool_returns_audio_content(mcp_client):

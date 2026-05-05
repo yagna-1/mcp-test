@@ -1,4 +1,3 @@
-import pytest
 from mcp_test import MCPTestClient
 from mcp_test.pagination import list_tools_paginated, list_resources_paginated, list_prompts_paginated
 

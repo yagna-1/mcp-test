@@ -1,4 +1,3 @@
-import pytest
 from mcp_test import MCPTestClient
 from mcp_test.assertions import assert_task_completes_within
 

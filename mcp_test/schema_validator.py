@@ -5,7 +5,7 @@ import random
 import string
 from typing import Any
 
-from .types import ToolList, ToolResult, ToolSchema
+from .types import ToolList, ToolSchema
 
 
 class SchemaValidationError:

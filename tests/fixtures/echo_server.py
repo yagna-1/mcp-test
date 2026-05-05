@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import sys
 import time
@@ -215,7 +214,6 @@ def send(msg: dict) -> None:
         sys.stdout.flush()
 
 
-import os
 
 def send_response(req_id: int | str, result: dict) -> None:
     send({"jsonrpc": "2.0", "id": req_id, "result": result})

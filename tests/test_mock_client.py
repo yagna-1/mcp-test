@@ -1,4 +1,3 @@
-import pytest
 from mcp_test import MCPTestClient
 
 def test_mock_sampling(mcp_client: MCPTestClient):

@@ -122,11 +122,11 @@ def _run_watch_mode(base_args: list[str]) -> int:
     test_dir = "tests"
     for arg in base_args:
         if not arg.startswith("-") and not arg.startswith("--") and arg != sys.executable and arg != "-m" and arg != "pytest":
-            if not "=" in arg:
+            if "=" not in arg:
                 test_dir = arg
                 break
 
-    print(f"👀 Watching for changes... (Ctrl+C to stop)")
+    print("👀 Watching for changes... (Ctrl+C to stop)")
     print()
 
     last_mtimes: dict[str, float] = {}

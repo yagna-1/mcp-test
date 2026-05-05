@@ -1,6 +1,5 @@
 
 import json
-import pytest
 from mcp_test import MCPTestClient
 
 

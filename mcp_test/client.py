@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import warnings
-from typing import Any, Callable, Iterator
+from typing import Any, Iterator
 
 from .otel import MCPTracer
 from .timeouts import TimeoutConfig
@@ -327,7 +327,7 @@ class MCPTestClient:
                     "sampling": {},
                     "roots": {"listChanged": True},
                 },
-                "clientInfo": {"name": "mcp-test", "version": "0.2.3"},
+                "clientInfo": {"name": "mcp-test", "version": "0.3.0"},
             },
             timeout=self._startup_timeout,
         )
