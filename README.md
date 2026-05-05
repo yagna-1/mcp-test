@@ -250,6 +250,13 @@ mcp_test/
 `pytest-mcp-plugin` is **beta**. The CLI surface and plugin API are stable; minor
 internals (schema validator details, snapshot format) may still change.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for what's next, what we explicitly won't build,
+and how we plan to complement (not compete with) Anthropic's official
+[`@modelcontextprotocol/conformance`](https://github.com/modelcontextprotocol/conformance)
+and [`@modelcontextprotocol/inspector`](https://github.com/modelcontextprotocol/inspector).
+
 ## Contributing
 
 Bug reports, feature requests, and PRs welcome at
