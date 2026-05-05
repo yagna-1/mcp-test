@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pytest-mcp-plugin"
-version = "0.2.1"
+version = "0.2.2"
 description = "pytest for MCP servers — the testing framework for the Model Context Protocol"
 readme = "README.md"
 license = "MIT"
@@ -49,7 +49,10 @@ dependencies = [
 [project.optional-dependencies]
 http = ["httpx>=0.25"]
 schema = ["jsonschema>=4.0"]
-all = ["pytest-mcp-plugin[http,schema]"]
+otel = ["opentelemetry-api>=1.24"]
+hypothesis = ["hypothesis>=6.0"]
+fastmcp = ["fastmcp>=2.0"]
+all = ["pytest-mcp-plugin[http,schema,otel,hypothesis,fastmcp]"]
 dev = [
     "pytest-mcp-plugin[all]",
     "pytest>=7.0",
@@ -92,3 +95,7 @@ testpaths = ["tests"]
 # Override in your project's pyproject.toml.
 command = "python -m mcp_test._demo_server"
 timeout = 10.0
+# Per-method timeouts: prefer the built-in family defaults via
+# `mcp-test run --smart-timeouts` (or pytest --mcp-smart-timeouts), or list
+# explicit overrides under [tool.mcp-test.timeouts] keyed by method, e.g.
+#   "my/slow_tool" = 120.0

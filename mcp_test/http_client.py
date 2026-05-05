@@ -8,6 +8,7 @@ import time
 import warnings
 from typing import Any, Iterator
 
+from .timeouts import TimeoutConfig
 from .types import (
     MCPAuthRequired,
     MCPClientError,
@@ -23,6 +24,7 @@ from .types import (
     Prompt,
 )
 from .auth import build_auth_headers, parse_www_authenticate
+from .wire_trace import WireTrace
 
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -120,10 +122,20 @@ class HTTPMCPTestClient:
         timeout: float = 10.0,
         headers: dict[str, str] | None = None,
         transport: str = TransportMode.AUTO,
+        method_timeouts: dict[str, float] | None = None,
+        use_smart_timeouts: bool = False,
+        trace_path: str | None = None,
+        trace: WireTrace | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self._timeouts = TimeoutConfig.from_values(
+            timeout,
+            method_timeouts,
+            use_smart_defaults=use_smart_timeouts,
+        )
         self._headers = headers or {}
+        self._trace = trace or WireTrace(trace_path)
         self._httpx: Any = None
         self._client: Any = None
         self._id_counter = 0
@@ -154,8 +166,19 @@ class HTTPMCPTestClient:
         timeout: float = 10.0,
         headers: dict[str, str] | None = None,
         transport: str = TransportMode.AUTO,
+        method_timeouts: dict[str, float] | None = None,
+        use_smart_timeouts: bool = False,
+        trace_path: str | None = None,
     ) -> HTTPMCPTestClient:
-        return cls(url, timeout=timeout, headers=headers, transport=transport)
+        return cls(
+            url,
+            timeout=timeout,
+            headers=headers,
+            transport=transport,
+            method_timeouts=method_timeouts,
+            use_smart_timeouts=use_smart_timeouts,
+            trace_path=trace_path,
+        )
 
     def _next_id(self) -> int:
         self._id_counter += 1
@@ -201,7 +224,7 @@ class HTTPMCPTestClient:
                 "sampling": {},
                 "roots": {"listChanged": True},
             },
-            "clientInfo": {"name": "mcp-test", "version": "0.2.1"},
+            "clientInfo": {"name": "mcp-test", "version": "0.2.2"},
         })
 
         result = response.get("result", {})
@@ -276,6 +299,7 @@ class HTTPMCPTestClient:
             self._sse_thread.join(timeout=2.0)
 
         if self._client:
+            self.terminate_session()
             self._client.close()
             self._client = None
 
@@ -286,29 +310,68 @@ class HTTPMCPTestClient:
         self.close()
 
 
-    def _request(self, method: str, params: dict, timeout: float | None = None) -> dict:
+    def _request(
+        self,
+        method: str,
+        params: dict,
+        timeout: float | None = None,
+        *,
+        _retry_on_missing_session: bool = True,
+    ) -> dict:
         if self._client is None:
             raise MCPClientError("Client is not started. Call start() first.")
 
-        timeout = timeout or self._timeout
+        timeout = self._timeouts.resolve(method, timeout)
         req_id = self._next_id()
 
-        payload = {
+        payload: dict[str, Any] = {
             "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
-            "params": params,
         }
+        if params:
+            payload["params"] = params
 
         post_url = "/"
         if self._resolved_transport == TransportMode.LEGACY_SSE and self._legacy_endpoint:
             post_url = self._legacy_endpoint
 
+        request_headers: dict[str, str] = {}
+        request_headers["Mcp-Method"] = method
+        if method in {"tools/call", "prompts/get"} and "name" in params:
+            request_headers["Mcp-Name"] = str(params["name"])
+        elif method == "resources/read" and "uri" in params:
+            request_headers["Mcp-Name"] = str(params["uri"])
+        if self._session_id and method != "initialize":
+            request_headers["Mcp-Session-Id"] = self._session_id
+        if self._last_event_id:
+            request_headers["Last-Event-ID"] = self._last_event_id
+
         try:
             resp = self._client.post(
                 post_url,
                 json=payload,
+                headers=request_headers,
                 timeout=timeout,
+            )
+            self._trace.record(
+                "out",
+                transport="http",
+                message=payload,
+                method=method,
+                request_id=req_id,
+                metadata={"url": post_url, "headers": request_headers},
+            )
+            self._trace.record(
+                "in",
+                transport="http",
+                method=method,
+                request_id=req_id,
+                event="http",
+                metadata={
+                    "status_code": resp.status_code,
+                    "headers": dict(resp.headers),
+                },
             )
             if resp.status_code == 401:
                 www_auth = resp.headers.get("www-authenticate", "")
@@ -320,6 +383,20 @@ class HTTPMCPTestClient:
             if resp.status_code == 403:
                 raise MCPForbiddenError(
                     message=f"Forbidden: {resp.text}",
+                )
+            if (
+                resp.status_code == 404
+                and self._session_id
+                and method != "initialize"
+                and _retry_on_missing_session
+            ):
+                self._session_id = ""
+                self._do_initialize()
+                return self._request(
+                    method,
+                    params,
+                    timeout=timeout,
+                    _retry_on_missing_session=False,
                 )
 
             session_id = resp.headers.get("mcp-session-id")
@@ -333,7 +410,15 @@ class HTTPMCPTestClient:
             if "text/event-stream" in content_type:
                 return self._parse_sse_response(resp.text, req_id)
 
-            return resp.json()
+            data = resp.json()
+            self._trace.record(
+                "in",
+                transport="http",
+                message=data,
+                method=data.get("method", method),
+                request_id=data.get("id", req_id),
+            )
+            return data
         except (MCPAuthRequired, MCPForbiddenError):
             raise
         except self._httpx.TimeoutException as e:
@@ -355,21 +440,24 @@ class HTTPMCPTestClient:
         if self._client is None:
             raise MCPClientError("Client is not started. Call start() first.")
 
-        timeout = timeout or self._timeout
+        timeout = self._timeouts.resolve(method, timeout)
         req_id = self._next_id()
 
-        payload = {
+        payload: dict[str, Any] = {
             "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
-            "params": params,
         }
+        if params:
+            payload["params"] = params
 
         post_url = "/"
         if self._resolved_transport == TransportMode.LEGACY_SSE and self._legacy_endpoint:
             post_url = self._legacy_endpoint
 
         headers = {"Accept": "text/event-stream"}
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
         if self._last_event_id:
             headers["Last-Event-ID"] = self._last_event_id
 
@@ -377,9 +465,25 @@ class HTTPMCPTestClient:
             "POST", post_url, json=payload, headers=headers, timeout=timeout,
         ) as resp:
             resp.raise_for_status()
+            self._trace.record(
+                "out",
+                transport="http",
+                message=payload,
+                method=method,
+                request_id=req_id,
+                metadata={"url": post_url, "headers": headers, "stream": True},
+            )
             for event in parse_sse_stream(resp.iter_lines()):
                 if event.id:
                     self._last_event_id = event.id
+                self._trace.record(
+                    "in",
+                    transport="http",
+                    event="sse",
+                    method=method,
+                    request_id=req_id,
+                    metadata={"event": event.event, "id": event.id},
+                )
                 yield event
 
     def _parse_sse_response(self, body: str, req_id: int) -> dict:
@@ -400,6 +504,13 @@ class HTTPMCPTestClient:
                     continue
 
                 if msg.get("id") == req_id:
+                    self._trace.record(
+                        "in",
+                        transport="http",
+                        message=msg,
+                        method=msg.get("method"),
+                        request_id=msg.get("id"),
+                    )
                     return msg
 
         return {"jsonrpc": "2.0", "id": req_id, "result": {}}
@@ -413,6 +524,55 @@ class HTTPMCPTestClient:
 
             self._legacy_endpoint = ""
             self._start_legacy_sse()
+
+    def stream_events(self, timeout: float | None = None) -> Iterator[SSEEvent]:
+        """Open a Streamable HTTP GET stream, resuming with Last-Event-ID."""
+
+        if self._client is None:
+            raise MCPClientError("Client is not started. Call start() first.")
+        headers = {"Accept": "text/event-stream"}
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        if self._last_event_id:
+            headers["Last-Event-ID"] = self._last_event_id
+
+        with self._client.stream(
+            "GET",
+            "/",
+            headers=headers,
+            timeout=timeout or self._timeout,
+        ) as resp:
+            if resp.status_code == 404 and self._session_id:
+                self._session_id = ""
+                self._do_initialize()
+                return
+            resp.raise_for_status()
+            for event in parse_sse_stream(resp.iter_lines()):
+                if event.id:
+                    self._last_event_id = event.id
+                self._trace.record(
+                    "in",
+                    transport="http",
+                    event="sse",
+                    metadata={"event": event.event, "id": event.id},
+                )
+                yield event
+
+    def terminate_session(self) -> None:
+        """Best-effort Streamable HTTP session termination."""
+
+        if not self._client or not self._session_id:
+            return
+        try:
+            self._client.delete(
+                "/",
+                headers={"Mcp-Session-Id": self._session_id},
+                timeout=min(self._timeout, 5.0),
+            )
+        except Exception:
+            pass
+        finally:
+            self._session_id = ""
 
     @property
     def last_event_id(self) -> str:
@@ -617,6 +777,10 @@ class HTTPMCPTestClient:
     @property
     def session_id(self) -> str:
         return self._session_id
+
+    @property
+    def wire_trace(self) -> WireTrace:
+        return self._trace
 
 
     def set_auth_token(self, token: str) -> None:

@@ -2,7 +2,73 @@
 
 All notable changes to `pytest-mcp-plugin` are documented here.
 
+## [0.2.2] — 2026-05-05
+
+### Fixed
+
+- **Compatibility with strict MCP servers** (e.g. FastMCP 1.10 stdio): the
+  client no longer sends `params: {}` for parameterless JSON-RPC requests.
+  FastMCP rejected those with `-32602 Invalid request parameters`, causing
+  `tools/list` to return zero tools against real-world Python MCP servers.
+  Empty params are now omitted from the wire payload, matching every other
+  well-behaved MCP client. Affects both stdio and HTTP transports.
+- **Wire trace accuracy**: `WireTrace.record("out", ...)` calls now run
+  *after* a successful `write()`+`flush()` instead of before, so
+  post-mortem traces never show phantom-sent messages when the server has
+  closed the pipe.
+
+### Added
+
+- `mcp-test conformance --url ... [--offline] [--pytest-items]` subcommand
+  that bridges to `npx @modelcontextprotocol/conformance`, parses results,
+  and can re-emit each scenario as a real pytest test item. Bundled
+  `--offline` mode runs `initialize`/`ping`/`tools/list` smoke checks
+  through `HTTPMCPTestClient` for environments without `npx`.
+- Per-method timeouts: `--mcp-timeout-method METHOD=SECONDS` (repeatable),
+  `--mcp-smart-timeouts` flag, `[tool.mcp-test.timeouts]` table in
+  `pyproject.toml`. `mcp_test.timeouts.SMART_TIMEOUT_DEFAULTS` is the
+  single source of truth.
+- Wire trace recorder: `--mcp-trace path.jsonl` (or `trace_path=` kwarg),
+  optional `--mcp-live-stderr`. `MCPTimeoutError` now embeds the most
+  recent frames inline. On CI failures, the plugin auto-dumps a
+  per-test-id trace under `mcp-traces/`.
+- `MCPTracer` (opt-in OpenTelemetry spans) — `pip install
+  'pytest-mcp-plugin[otel]'`, then pass `otel=True` to `make_client()`.
+- `FastMCPHarness` — in-process testing for FastMCP apps without spawning
+  a subprocess. `pip install 'pytest-mcp-plugin[fastmcp]'`.
+- `WireTraceReplay` — deterministic replay of recorded traces.
+- `mcp-test bench --command ... --duration --concurrency` — p50/p95/p99
+  per-method latencies, FD-leak detection, baseline comparison via
+  `compare_to_baseline()`.
+- Server-type test pack starters: `FilesystemServerTests`,
+  `DatabaseServerTests`, `APIWrapperTests`, `ShellExecTests` in
+  `mcp_test.test_packs`.
+- `[hypothesis]` extra: `hypothesis_strategy_for_tool()` returns a
+  Hypothesis strategy from a tool's input schema, for property-based
+  contract tests.
+- HTTP client: `Mcp-Method` and `Mcp-Name` request headers, automatic
+  session termination on `close()`.
+
+### Changed
+
+- Consolidated three `pyproject.toml` readers in `runner.py` behind a
+  single `_load_mcp_test_config()` helper that warns (instead of silently
+  swallowing) on malformed TOML.
+- Removed redundant `[tool.mcp-test.timeouts]` block from this repo's own
+  `pyproject.toml`; the values were exact duplicates of
+  `SMART_TIMEOUT_DEFAULTS`. Use `--smart-timeouts` to opt in.
+- The pytest plugin's session-scoped client attribute is now
+  `_pytest_mcp_plugin_client` (was `_mcp_client_instance`) so it never
+  collides with other plugins on `pytest.Config`.
+
 ## [0.2.1] — 2026-05-05
+
+### Added
+
+- Per-method timeout overrides via pytest/CLI and `[tool.mcp-test.timeouts]`.
+- JSONL wire tracing, recent-frame failure dumps in CI, and trace replay helpers.
+- `mcp-test conformance`, compliance scoring, `mcp-test bench`, FastMCP harness,
+  reusable test packs, optional OpenTelemetry facade, and Hypothesis schema strategies.
 
 ### Changed
 
@@ -10,6 +76,8 @@ All notable changes to `pytest-mcp-plugin` are documented here.
   `tomllib` → `tomli` fallback for 3.10 in `runner.py`; this release makes that
   fallback an explicit conditional dependency and unblocks adoption in projects
   that target 3.10 (e.g. `qdrant/mcp-server-qdrant`).
+- Tightened Streamable HTTP session handling, resumability headers, DELETE
+  termination, and draft request metadata headers.
 
 ## [0.2.0] — 2026-05-05
 

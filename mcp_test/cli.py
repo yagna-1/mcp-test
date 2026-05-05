@@ -20,7 +20,7 @@ from pathlib import Path
 
 import click
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 EXAMPLE_TEST = '''\
@@ -129,12 +129,24 @@ def init(test_dir: str) -> None:
     help="MCP server command (auto-discovered from pyproject.toml if not set)",
 )
 @click.option("--timeout", "-t", default=None, type=float, help="Request timeout (seconds)")
+@click.option(
+    "--timeout-method",
+    "timeout_methods",
+    multiple=True,
+    metavar="METHOD=SECONDS",
+    help="Per-method timeout override passed through to pytest",
+)
+@click.option("--smart-timeouts", is_flag=True, help="Enable built-in method-family timeouts")
+@click.option("--trace", default=None, help="Write MCP wire trace JSONL to this path")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option("--watch", "-w", is_flag=True, help="Re-run tests on file changes")
 @click.argument("pytest_args", nargs=-1, type=click.UNPROCESSED)
 def run(
     command: str | None,
     timeout: float | None,
+    timeout_methods: tuple[str, ...],
+    smart_timeouts: bool,
+    trace: str | None,
     verbose: bool,
     watch: bool,
     pytest_args: tuple,
@@ -161,6 +173,12 @@ def run(
         f"--mcp-command={command}",
         f"--mcp-timeout={timeout}",
     ]
+    for timeout_method in timeout_methods:
+        args.append(f"--mcp-timeout-method={timeout_method}")
+    if smart_timeouts:
+        args.append("--mcp-smart-timeouts")
+    if trace:
+        args.append(f"--mcp-trace={trace}")
     if verbose:
         args.append("-v")
     args.extend(pytest_args)
@@ -306,6 +324,96 @@ def validate_cmd(command: str, timeout: float) -> None:
             raise SystemExit(1)
         else:
             click.echo("⚠️  Schema validation passed with warnings.")
+
+
+@main.command()
+@click.option("--url", required=True, help="HTTP MCP endpoint URL")
+@click.option("--offline", is_flag=True, help="Use the bundled offline smoke scenarios")
+@click.option("--timeout", "-t", default=300.0, type=float, help="Runner timeout in seconds")
+@click.option("--json-output", is_flag=True, help="Print machine-readable JSON")
+@click.option("--pytest-items", is_flag=True, help="Re-emit scenarios as pytest test items")
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+def conformance(
+    url: str,
+    offline: bool,
+    timeout: float,
+    json_output: bool,
+    pytest_items: bool,
+    extra_args: tuple[str, ...],
+) -> None:
+    """Run Anthropic's MCP conformance suite from the mcp-test CLI."""
+    import json
+
+    from .compliance import score_conformance
+    from .conformance import (
+        npx_available,
+        run_report_as_pytest,
+        run_offline_smoke_conformance,
+        run_upstream_conformance,
+    )
+
+    if offline:
+        report = run_offline_smoke_conformance(url, timeout=min(timeout, 30.0))
+    else:
+        if not npx_available():
+            click.echo("❌ npx is not available; rerun with --offline for bundled smoke scenarios.")
+            raise SystemExit(2)
+        report = run_upstream_conformance(url, timeout=timeout, extra_args=extra_args)
+
+    if json_output:
+        click.echo(json.dumps(report.to_json(), indent=2, sort_keys=True))
+    else:
+        source = "offline smoke" if report.source == "offline" else "upstream"
+        click.echo(f"MCP conformance ({source}): {report.passed}/{report.total} passing ({report.percentage}%)")
+        for scenario in report.scenarios:
+            icon = "✅" if scenario.passed else "❌"
+            suffix = f" - {scenario.message}" if scenario.message and not scenario.passed else ""
+            click.echo(f"  {icon} {scenario.name}{suffix}")
+        click.echo(score_conformance(report).badge_text())
+
+    if pytest_items:
+        raise SystemExit(run_report_as_pytest(report))
+    raise SystemExit(0 if report.failed == 0 else 1)
+
+
+@main.command()
+@click.option("--command", "-c", required=True, help="MCP server command")
+@click.option("--duration", default=10.0, type=float, help="Benchmark duration in seconds")
+@click.option("--concurrency", default=4, type=int, help="Concurrent clients")
+@click.option("--timeout", "-t", default=10.0, type=float, help="Request timeout in seconds")
+@click.option("--baseline", default=None, help="Compare against a previous JSON baseline")
+@click.option("--output", default=None, help="Write benchmark JSON to this file")
+def bench(
+    command: str,
+    duration: float,
+    concurrency: int,
+    timeout: float,
+    baseline: str | None,
+    output: str | None,
+) -> None:
+    """Run a lightweight regression benchmark against an MCP server."""
+    import json
+    from pathlib import Path
+
+    from .bench import compare_to_baseline, run_bench
+
+    result = run_bench(
+        command,
+        duration_s=duration,
+        concurrency=concurrency,
+        timeout=timeout,
+    )
+    data = result.to_json()
+    click.echo(json.dumps(data, indent=2, sort_keys=True))
+    if output:
+        Path(output).write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+    failures = list(result.failures)
+    if baseline:
+        failures.extend(compare_to_baseline(result, baseline))
+    for failure in failures:
+        click.echo(f"❌ {failure}")
+    raise SystemExit(1 if failures else 0)
 
 
 if __name__ == "__main__":

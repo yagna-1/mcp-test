@@ -47,14 +47,41 @@ from .schema_validator import (
     ContractTestResult,
     SchemaValidationError,
     generate_valid_inputs,
+    hypothesis_strategy_for_tool,
     validate_schemas,
     validate_tool_schema,
 )
 from .coverage import CoverageReport, CoverageTracker, PrimitiveCoverage
-from .runner import discover_command, discover_timeout, run_tests
+from .runner import discover_command, discover_method_timeouts, discover_timeout, run_tests
 from .fixtures import fixture, make_sandboxed_client, seed_fixture_data
+from .bench import BenchResult, MethodLatency, compare_to_baseline, run_bench
+from .compliance import ComplianceScore, score_conformance
+from .conformance import (
+    ConformanceReport,
+    ConformanceScenario,
+    parse_conformance_output,
+    run_offline_smoke_conformance,
+    run_report_as_pytest,
+    run_upstream_conformance,
+)
+from .otel import MCPTracer
+from .replay import WireTraceReplay
+from .test_packs import (
+    APIWrapperTests,
+    DatabaseServerTests,
+    FilesystemServerTests,
+    ShellExecTests,
+    ToolInvocation,
+)
+from .timeouts import (
+    SMART_TIMEOUT_DEFAULTS,
+    TimeoutConfig,
+    parse_timeout_overrides,
+    smart_timeout_for_method,
+)
+from .wire_trace import WireTrace
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     "MCPTestClient",
@@ -101,13 +128,39 @@ __all__ = [
     "validate_tool_schema",
     "validate_schemas",
     "generate_valid_inputs",
+    "hypothesis_strategy_for_tool",
     "CoverageTracker",
     "CoverageReport",
     "PrimitiveCoverage",
     "discover_command",
     "discover_timeout",
+    "discover_method_timeouts",
     "run_tests",
     "fixture",
     "make_sandboxed_client",
     "seed_fixture_data",
+    "TimeoutConfig",
+    "SMART_TIMEOUT_DEFAULTS",
+    "parse_timeout_overrides",
+    "smart_timeout_for_method",
+    "WireTrace",
+    "WireTraceReplay",
+    "MCPTracer",
+    "BenchResult",
+    "MethodLatency",
+    "compare_to_baseline",
+    "run_bench",
+    "ComplianceScore",
+    "score_conformance",
+    "ConformanceReport",
+    "ConformanceScenario",
+    "parse_conformance_output",
+    "run_offline_smoke_conformance",
+    "run_report_as_pytest",
+    "run_upstream_conformance",
+    "APIWrapperTests",
+    "DatabaseServerTests",
+    "FilesystemServerTests",
+    "ShellExecTests",
+    "ToolInvocation",
 ]

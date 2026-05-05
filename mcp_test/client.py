@@ -6,10 +6,13 @@ import os
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import warnings
 from typing import Any, Callable, Iterator
 
+from .otel import MCPTracer
+from .timeouts import TimeoutConfig
 from .types import (
     MCPCancelledError,
     MCPClientError,
@@ -24,6 +27,7 @@ from .types import (
     Prompt,
     Task,
 )
+from .wire_trace import WireTrace
 import contextlib
 
 
@@ -33,9 +37,17 @@ PROTOCOL_VERSION = "2024-11-05"
 class _StderrCollector:
     """Drains stderr from the server process in a background thread."""
 
-    def __init__(self, stderr):
+    def __init__(
+        self,
+        stderr,
+        *,
+        live: bool = False,
+        trace: WireTrace | None = None,
+    ):
         self._lines: list[str] = []
         self._lock = threading.Lock()
+        self._live = live
+        self._trace = trace
         self._thread = threading.Thread(target=self._run, args=(stderr,), daemon=True)
         self._thread.start()
 
@@ -44,6 +56,15 @@ class _StderrCollector:
             for line in stderr:
                 with self._lock:
                     self._lines.append(line)
+                if self._trace:
+                    self._trace.record(
+                        "stderr",
+                        event="stderr",
+                        metadata={"line": line.rstrip("\n")},
+                    )
+                if self._live:
+                    sys.stderr.write(line)
+                    sys.stderr.flush()
         except (ValueError, OSError):
             pass
 
@@ -55,11 +76,19 @@ class _StderrCollector:
 class _MessagePump:
     """Background thread that owns stdout and routes messages by shape."""
 
-    def __init__(self, stdout, on_notification=None, on_request=None, send_response=None):
+    def __init__(
+        self,
+        stdout,
+        on_notification=None,
+        on_request=None,
+        send_response=None,
+        trace: WireTrace | None = None,
+    ):
         self._stdout = stdout
         self._on_notification = on_notification
         self._on_request = on_request
         self._send_response = send_response
+        self._trace = trace
         self._pending: dict[int, threading.Event] = {}
         self._results: dict[int, dict] = {}
         self._pending_lock = threading.Lock()
@@ -90,6 +119,13 @@ class _MessagePump:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if self._trace:
+                    self._trace.record(
+                        "in",
+                        message=msg,
+                        method=msg.get("method"),
+                        request_id=msg.get("id"),
+                    )
                 self._dispatch(msg)
         finally:
             self._eof.set()
@@ -143,12 +179,26 @@ class MCPTestClient:
         *,
         timeout: float = 10.0,
         startup_timeout: float = 15.0,
+        method_timeouts: dict[str, float] | None = None,
+        use_smart_timeouts: bool = False,
+        trace_path: str | os.PathLike[str] | None = None,
+        trace: WireTrace | None = None,
+        live_stderr: bool = False,
+        otel: bool = False,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
     ):
         self._command = command
         self._default_timeout = timeout
+        self._timeouts = TimeoutConfig.from_values(
+            timeout,
+            method_timeouts,
+            use_smart_defaults=use_smart_timeouts,
+        )
         self._startup_timeout = startup_timeout
+        self._trace = trace or WireTrace(trace_path)
+        self._tracer = MCPTracer(enabled=otel)
+        self._live_stderr = live_stderr
         self._env = env
         self._cwd = cwd
         self._process: subprocess.Popen | None = None
@@ -175,10 +225,24 @@ class MCPTestClient:
         *,
         timeout: float = 10.0,
         startup_timeout: float = 15.0,
+        method_timeouts: dict[str, float] | None = None,
+        use_smart_timeouts: bool = False,
+        trace_path: str | os.PathLike[str] | None = None,
+        live_stderr: bool = False,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
     ) -> MCPTestClient:
-        return cls(command, timeout=timeout, startup_timeout=startup_timeout, env=env, cwd=cwd)
+        return cls(
+            command,
+            timeout=timeout,
+            startup_timeout=startup_timeout,
+            method_timeouts=method_timeouts,
+            use_smart_timeouts=use_smart_timeouts,
+            trace_path=trace_path,
+            live_stderr=live_stderr,
+            env=env,
+            cwd=cwd,
+        )
 
     def _next_id(self) -> int:
         with self._id_lock:
@@ -210,7 +274,12 @@ class MCPTestClient:
             try:
                 self._process.stdin.write(json.dumps(msg) + "\n")
                 self._process.stdin.flush()
-            except Exception:
+                self._trace.record(
+                    "out",
+                    message=msg,
+                    request_id=msg.get("id"),
+                )
+            except (BrokenPipeError, OSError):
                 pass
                 
     def register_mock_responder(self, method: str, responder: Any) -> None:
@@ -237,12 +306,17 @@ class MCPTestClient:
             start_new_session=True,
         )
 
-        self._stderr_collector = _StderrCollector(self._process.stderr)
+        self._stderr_collector = _StderrCollector(
+            self._process.stderr,
+            live=self._live_stderr,
+            trace=self._trace,
+        )
         self._pump = _MessagePump(
             self._process.stdout, 
             on_notification=self._on_notification,
             on_request=self._on_server_request,
-            send_response=self._send_response
+            send_response=self._send_response,
+            trace=self._trace,
         )
 
         response = self._request(
@@ -253,7 +327,7 @@ class MCPTestClient:
                     "sampling": {},
                     "roots": {"listChanged": True},
                 },
-                "clientInfo": {"name": "mcp-test", "version": "0.2.1"},
+                "clientInfo": {"name": "mcp-test", "version": "0.2.2"},
             },
             timeout=self._startup_timeout,
         )
@@ -328,14 +402,23 @@ class MCPTestClient:
             raise MCPServerCrash(returncode, stderr)
 
     def _request(self, method: str, params: dict, timeout: float | None = None) -> dict:
+        with self._tracer.span(
+            method,
+            protocol_version=self._server_version,
+        ):
+            return self._do_request(method, params, timeout)
+
+    def _do_request(self, method: str, params: dict, timeout: float | None = None) -> dict:
         self._assert_running()
-        timeout = timeout or self._default_timeout
+        timeout = self._timeouts.resolve(method, timeout)
         req_id = self._next_id()
 
         event = self._pump.register(req_id)
 
-        msg = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
-        
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
+        if params:
+            msg["params"] = params
+
         cancel_timer: threading.Timer | None = None
         if getattr(self, "_cancel_after_seconds", None) is not None:
             def _send_cancel():
@@ -348,6 +431,11 @@ class MCPTestClient:
                     if self._process and self._process.stdin and not self._process.stdin.closed:
                         self._process.stdin.write(json.dumps(cancel_msg) + "\n")
                         self._process.stdin.flush()
+                        self._trace.record(
+                            "out",
+                            message=cancel_msg,
+                            method="notifications/cancelled",
+                        )
                 except Exception:
                     pass
             cancel_timer = threading.Timer(self._cancel_after_seconds, _send_cancel)
@@ -356,6 +444,12 @@ class MCPTestClient:
         try:
             self._process.stdin.write(json.dumps(msg) + "\n")
             self._process.stdin.flush()
+            self._trace.record(
+                "out",
+                message=msg,
+                method=method,
+                request_id=req_id,
+            )
         except (BrokenPipeError, OSError) as e:
             stderr = self._stderr_collector.get() if self._stderr_collector else ""
             returncode = self._process.poll()
@@ -363,20 +457,22 @@ class MCPTestClient:
                 raise MCPServerCrash(returncode, stderr) from e
             raise MCPClientError(f"Failed to write to server stdin: {e}") from e
 
-        signaled = event.wait(timeout=timeout)
-        if not signaled:
-            returncode = self._process.poll()
-            if returncode is not None:
+        try:
+            signaled = event.wait(timeout=timeout)
+            if not signaled:
+                returncode = self._process.poll()
+                if returncode is not None:
+                    stderr = self._stderr_collector.get() if self._stderr_collector else ""
+                    raise MCPServerCrash(returncode, stderr)
                 stderr = self._stderr_collector.get() if self._stderr_collector else ""
-                raise MCPServerCrash(returncode, stderr)
-            stderr = self._stderr_collector.get() if self._stderr_collector else ""
-            raise MCPTimeoutError(
-                f"No response for '{method}' after {timeout}s. "
-                f"Server stderr:\n{stderr or '(empty)'}"
-            )
-
-        if cancel_timer:
-            cancel_timer.cancel()
+                raise MCPTimeoutError(
+                    f"No response for '{method}' after {timeout}s. "
+                    f"Server stderr:\n{stderr or '(empty)'}\n"
+                    f"Recent MCP wire trace:\n{self._trace.format_recent()}"
+                )
+        finally:
+            if cancel_timer:
+                cancel_timer.cancel()
 
         result = self._pump.get_result(req_id)
         if not result:
@@ -641,6 +737,10 @@ class MCPTestClient:
     def called_tools(self) -> set[str]:
         return self._called_tools.copy()
 
+    @property
+    def wire_trace(self) -> WireTrace:
+        return self._trace
+
 
     def validate_schemas(self) -> list:
         from .schema_validator import validate_schemas as _validate
@@ -676,7 +776,23 @@ def make_client(
     *,
     timeout: float = 10.0,
     startup_timeout: float = 15.0,
+    method_timeouts: dict[str, float] | None = None,
+    use_smart_timeouts: bool = False,
+    trace_path: str | os.PathLike[str] | None = None,
+    live_stderr: bool = False,
+    otel: bool = False,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
 ) -> MCPTestClient:
-    return MCPTestClient(command, timeout=timeout, startup_timeout=startup_timeout, env=env, cwd=cwd)
+    return MCPTestClient(
+        command,
+        timeout=timeout,
+        startup_timeout=startup_timeout,
+        method_timeouts=method_timeouts,
+        use_smart_timeouts=use_smart_timeouts,
+        trace_path=trace_path,
+        live_stderr=live_stderr,
+        otel=otel,
+        env=env,
+        cwd=cwd,
+    )

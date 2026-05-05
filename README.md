@@ -76,6 +76,11 @@ Or pin the command in your `pyproject.toml`:
 [tool.mcp-test]
 command = "python my_server.py"
 timeout = 10
+
+[tool.mcp-test.timeouts]
+"tools/list" = 5
+"tools/call" = 30
+"sampling/createMessage" = 60
 ```
 
 …and just run:
@@ -165,6 +170,8 @@ server, and posts a JUnit XML report.
 | `mcp-test snapshot -c "..."` | Run snapshot tests (`--update` to refresh) |
 | `mcp-test coverage -c "..."` | Print coverage report (tools/prompts/resources) |
 | `mcp-test validate -c "..."` | Validate tool input schemas |
+| `mcp-test conformance --url "..."` | Run the upstream MCP conformance suite through `npx` |
+| `mcp-test bench -c "..."` | Run lightweight p50/p95/p99 regression probes |
 
 All commands accept `--help` for full options.
 
@@ -182,8 +189,17 @@ The pytest plugin auto-registers three fixtures:
 | `snapshot` | function | Snapshot testing helper |
 
 ```bash
-pytest --mcp-command "python my_server.py" --mcp-timeout 15
+pytest --mcp-command "python my_server.py" --mcp-timeout 15 \
+  --mcp-timeout-method tools/call=30 \
+  --mcp-trace .mcp-test/trace.jsonl
 ```
+
+`--mcp-timeout-method METHOD=SECONDS` may be passed multiple times, and the
+same values can live in `[tool.mcp-test.timeouts]`. `--mcp-trace` records JSONL
+wire frames; in CI, failing tests also dump recent frames to `mcp-traces/`.
+
+Use `mcp-test conformance --url ... --pytest-items` when you want each parsed
+upstream scenario re-emitted as a normal pytest test item.
 
 ## Spec-version markers
 
@@ -240,7 +256,15 @@ mcp_test/
   coverage.py          # tools/prompts/resources coverage tracker
   snapshot.py          # snapshot testing
   auth.py              # OAuth / PKCE / RFC 9728 helpers
+  bench.py             # lightweight regression benchmark probes
+  conformance.py       # bridge to @modelcontextprotocol/conformance
+  compliance.py        # conformance score helpers
+  fastmcp.py           # in-process FastMCP harness adapter
+  replay.py            # deterministic wire-trace replay lookup
   pagination.py        # cursor pagination helpers
+  test_packs.py        # reusable server-shape test packs
+  timeouts.py          # per-method timeout policy
+  wire_trace.py        # JSONL wire trace recorder
   types.py             # ToolResult, ToolSchema, MCPError, ...
   _demo_server.py      # bundled demo server (used by `mcp-test demo`)
 ```

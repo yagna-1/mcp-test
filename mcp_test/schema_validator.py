@@ -151,6 +151,50 @@ def generate_invalid_inputs_wrong_types(tool: ToolSchema) -> list[dict[str, Any]
     return invalid_cases
 
 
+def hypothesis_strategy_for_tool(tool: ToolSchema):
+    """Return a Hypothesis strategy for valid inputs when Hypothesis is installed."""
+
+    try:
+        from hypothesis import strategies as st
+    except ImportError as exc:
+        raise RuntimeError(
+            "hypothesis is required for property-based contract tests"
+        ) from exc
+
+    fields: dict[str, Any] = {}
+    for name, prop_schema in tool.properties.items():
+        if name in tool.required:
+            fields[name] = _hypothesis_strategy_for_schema(prop_schema, st)
+    return st.fixed_dictionaries(fields)
+
+
+def _hypothesis_strategy_for_schema(prop_schema: dict, st):
+    prop_type = prop_schema.get("type", "string")
+    enum = prop_schema.get("enum")
+    if enum:
+        return st.sampled_from(enum)
+    if prop_type == "string":
+        return st.text(min_size=1, max_size=128)
+    if prop_type == "integer":
+        minimum = int(prop_schema.get("minimum", -1000))
+        maximum = int(prop_schema.get("maximum", 1000))
+        return st.integers(min_value=minimum, max_value=maximum)
+    if prop_type == "number":
+        minimum = float(prop_schema.get("minimum", -1000))
+        maximum = float(prop_schema.get("maximum", 1000))
+        return st.floats(min_value=minimum, max_value=maximum, allow_nan=False, allow_infinity=False)
+    if prop_type == "boolean":
+        return st.booleans()
+    if prop_type == "array":
+        item_schema = prop_schema.get("items", {"type": "string"})
+        return st.lists(_hypothesis_strategy_for_schema(item_schema, st), max_size=10)
+    if prop_type == "object":
+        return st.dictionaries(st.text(min_size=1, max_size=32), st.text(max_size=128), max_size=10)
+    if prop_type == "null":
+        return st.none()
+    return st.text(min_size=1, max_size=128)
+
+
 class ContractTestResult:
     """Result of contract testing a tool."""
 

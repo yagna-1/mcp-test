@@ -18,6 +18,8 @@ with make_client(
     "python my_server.py",
     timeout=15.0,
     startup_timeout=30.0,
+    method_timeouts={"tools/call": 30.0},
+    trace_path=".mcp-test/trace.jsonl",
     env={"API_KEY": "test-key"},
     cwd="/path/to/server",
 ) as client:
@@ -171,6 +173,51 @@ with HTTPMCPTestClient.from_url("http://localhost:8080") as client:
 ```
 
 Requires: `pip install pytest-mcp-plugin[http]`
+
+---
+
+## Timeout Policy
+
+```python
+from mcp_test import TimeoutConfig
+
+timeouts = TimeoutConfig.from_values(
+    10.0,
+    {"tools/list": 5.0, "tools/call": 30.0},
+    use_smart_defaults=True,
+)
+```
+
+CLI and pytest options:
+
+```bash
+pytest --mcp-timeout 10 --mcp-timeout-method tools/call=30 --mcp-smart-timeouts
+```
+
+`[tool.mcp-test.timeouts]` in `pyproject.toml` supports the same per-method map.
+
+---
+
+## Wire Tracing
+
+```python
+with make_client("python my_server.py", trace_path=".mcp-test/trace.jsonl") as client:
+    client.list_tools()
+```
+
+The trace is JSONL and can be replayed with `WireTraceReplay` for deterministic
+client-side tests.
+
+---
+
+## Conformance and Benchmarks
+
+```bash
+mcp-test conformance --url http://localhost:8080/mcp
+mcp-test conformance --url http://localhost:8080/mcp --pytest-items
+mcp-test conformance --url http://localhost:8080/mcp --offline
+mcp-test bench -c "python my_server.py" --duration 15 --concurrency 4
+```
 
 ---
 
