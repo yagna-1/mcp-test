@@ -2,6 +2,16 @@
 
 All notable changes to `pytest-mcp-plugin` are documented here.
 
+## [0.2.3] — 2026-05-05
+
+### Fixed
+
+- **Send `notifications/initialized` after the handshake** (MCP spec requires
+  it; FastMCP-backed servers reject all subsequent requests with
+  `-32602 Invalid request parameters` until they receive it). Caught while
+  testing v0.2.2 against `excel-mcp-server`. Affects both stdio and HTTP
+  clients.
+
 ## [0.2.2] — 2026-05-05
 
 ### Fixed

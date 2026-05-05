@@ -137,6 +137,27 @@ def test_http_request_includes_session_and_metadata_headers():
     )
 
 
+def test_initialize_handshake_sends_initialized_notification():
+    """MCP spec requires notifications/initialized after initialize.
+
+    FastMCP-backed servers reject all later requests with -32602 until they
+    receive it, so MCPTestClient must send it as part of start().
+    """
+    trace_path = None
+    with make_client(SERVER_CMD, timeout=5.0) as client:
+        recent = client.wire_trace.recent()
+
+    methods_sent = [
+        entry.get("method")
+        for entry in recent
+        if entry.get("direction") == "out"
+    ]
+    assert "initialize" in methods_sent
+    assert "notifications/initialized" in methods_sent, (
+        f"client must send notifications/initialized; saw: {methods_sent}"
+    )
+
+
 def test_smart_timeout_defaults_table_matches_resolver():
     """SMART_TIMEOUT_DEFAULTS is the single source of truth — assert agreement."""
     assert smart_timeout_for_method("tools/call") == SMART_TIMEOUT_DEFAULTS["tools/call"]

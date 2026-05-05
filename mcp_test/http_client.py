@@ -224,7 +224,7 @@ class HTTPMCPTestClient:
                 "sampling": {},
                 "roots": {"listChanged": True},
             },
-            "clientInfo": {"name": "mcp-test", "version": "0.2.2"},
+            "clientInfo": {"name": "mcp-test", "version": "0.2.3"},
         })
 
         result = response.get("result", {})
@@ -239,6 +239,32 @@ class HTTPMCPTestClient:
                 "Some features may not work.",
                 stacklevel=2,
             )
+
+        # Per MCP spec, send `notifications/initialized` immediately after
+        # the initialize handshake — FastMCP-backed servers reject all later
+        # requests until they receive it.
+        self._send_notification("notifications/initialized", {})
+
+    def _send_notification(self, method: str, params: dict) -> None:
+        if self._client is None:
+            return
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params:
+            payload["params"] = params
+        headers: dict[str, str] = {"Mcp-Method": method}
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        try:
+            self._client.post("/", json=payload, headers=headers, timeout=self._timeout)
+            self._trace.record(
+                "out",
+                transport="http",
+                message=payload,
+                method=method,
+                metadata={"headers": headers},
+            )
+        except Exception:  # notifications are fire-and-forget
+            pass
 
     def _start_legacy_sse(self) -> None:
         self._sse_stop_event.clear()

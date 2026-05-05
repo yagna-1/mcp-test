@@ -327,7 +327,7 @@ class MCPTestClient:
                     "sampling": {},
                     "roots": {"listChanged": True},
                 },
-                "clientInfo": {"name": "mcp-test", "version": "0.2.2"},
+                "clientInfo": {"name": "mcp-test", "version": "0.2.3"},
             },
             timeout=self._startup_timeout,
         )
@@ -345,7 +345,26 @@ class MCPTestClient:
                 stacklevel=2,
             )
 
+        # Per MCP spec, the client must send `notifications/initialized` after
+        # the initialize handshake completes; some servers (FastMCP-backed)
+        # reject all subsequent requests with -32602 until they receive it.
+        self._send_notification("notifications/initialized", {})
+
         return self
+
+    def _send_notification(self, method: str, params: dict) -> None:
+        """Send a JSON-RPC notification (no id, no response expected)."""
+        if not self._process or not self._process.stdin or self._process.stdin.closed:
+            return
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params:
+            msg["params"] = params
+        try:
+            self._process.stdin.write(json.dumps(msg) + "\n")
+            self._process.stdin.flush()
+            self._trace.record("out", message=msg, method=method)
+        except (BrokenPipeError, OSError):
+            pass
 
     def close(self) -> None:
         if self._process is None:
