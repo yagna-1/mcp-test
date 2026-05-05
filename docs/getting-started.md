@@ -1,25 +1,39 @@
-# Getting Started with mcp-test
+# Getting Started with pytest-mcp-plugin
+
+> Note: this package is published on PyPI as `pytest-mcp-plugin` — the `mcp-test`
+> name on PyPI belongs to Anthropic's official MCP SDK and PyPI's
+> name-similarity rules block close variants. The CLI binary is still
+> `mcp-test` and the Python module is still `mcp_test`.
 
 ## Installation
 
 ```bash
-pip install mcp-test
+pip install pytest-mcp-plugin
 ```
 
 For HTTP transport support:
 ```bash
-pip install mcp-test[http]
+pip install pytest-mcp-plugin[http]
 ```
 
 For schema validation:
 ```bash
-pip install mcp-test[schema]
+pip install pytest-mcp-plugin[schema]
 ```
 
 Everything:
 ```bash
-pip install mcp-test[all]
+pip install pytest-mcp-plugin[all]
 ```
+
+## Try the bundled demo (5 seconds)
+
+```bash
+mcp-test demo
+```
+
+Spawns a bundled MCP server, runs a real pytest suite against it, and prints
+the result. No setup, no API keys, no servers to write first.
 
 ## Quick Start
 
@@ -57,7 +71,9 @@ mcp-test run -c "python my_server.py" -v
 
 ## How It Works
 
-`mcp-test` starts your MCP server as a subprocess, speaks JSON-RPC 2.0 over stdio, and provides a clean Python API for calling tools, listing resources, and validating schemas.
+`pytest-mcp-plugin` starts your MCP server as a subprocess, speaks JSON-RPC 2.0 over
+stdio, and provides a clean Python API for calling tools, listing resources,
+and validating schemas.
 
 Under the hood:
 - A **message pump** thread reads all server output and routes responses by request ID

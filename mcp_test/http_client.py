@@ -34,7 +34,7 @@ def _require_httpx():
         return httpx
     except ImportError:
         raise MCPClientError(
-            "httpx is required for HTTP transport. Install with: pip install mcp-test[http]"
+            "httpx is required for HTTP transport. Install with: pip install pytest-mcp-plugin[http]"
         )
 
 
@@ -201,7 +201,7 @@ class HTTPMCPTestClient:
                 "sampling": {},
                 "roots": {"listChanged": True},
             },
-            "clientInfo": {"name": "mcp-test", "version": "0.1.0"},
+            "clientInfo": {"name": "mcp-test", "version": "0.2.0"},
         })
 
         result = response.get("result", {})

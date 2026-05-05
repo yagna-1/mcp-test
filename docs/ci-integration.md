@@ -1,8 +1,34 @@
 # CI Integration
 
-## GitHub Actions
+## Easiest: composite GitHub Action
 
-Add this workflow to test your MCP server in CI:
+Drop this into `.github/workflows/mcp-tests.yml` in your MCP-server repo:
+
+```yaml
+name: MCP Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  mcp-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: yagna-1/mcp-test@v0.2.0
+        with:
+          command: "python my_server.py"
+          test-dir: "tests"
+```
+
+The action installs `pytest-mcp-plugin`, runs your test suite against your MCP server,
+and uploads a JUnit XML report.
+
+## Manual GitHub Actions setup
+
+If you'd rather wire it up by hand:
 
 ```yaml
 # .github/workflows/test-mcp-server.yml
@@ -31,7 +57,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mcp-test
+          pip install pytest-mcp-plugin
           pip install -r requirements.txt  # your server's deps
 
       - name: Run MCP server tests
@@ -41,7 +67,7 @@ jobs:
         run: mcp-test validate -c "python src/server.py"
 ```
 
-## pyproject.toml Configuration
+## pyproject.toml configuration
 
 You can set default options in your project's `pyproject.toml`:
 
@@ -49,6 +75,16 @@ You can set default options in your project's `pyproject.toml`:
 [tool.pytest.ini_options]
 addopts = "--mcp-command='python src/server.py' --mcp-timeout=15"
 ```
+
+Or use pytest-mcp-plugin's own config block:
+
+```toml
+[tool.mcp-test]
+command = "python src/server.py"
+timeout = 15
+```
+
+…and run `mcp-test run` with no flags.
 
 ## Tips
 
@@ -63,7 +99,7 @@ pytest --mcp-command "python server.py" -n auto
 
 ### Plugin compatibility
 
-`mcp-test` is tested with:
+`pytest-mcp-plugin` is tested with:
 - `pytest-asyncio`
 - `pytest-cov`
 - `pytest-xdist`

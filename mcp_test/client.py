@@ -253,7 +253,7 @@ class MCPTestClient:
                     "sampling": {},
                     "roots": {"listChanged": True},
                 },
-                "clientInfo": {"name": "mcp-test", "version": "0.1.0"},
+                "clientInfo": {"name": "mcp-test", "version": "0.2.0"},
             },
             timeout=self._startup_timeout,
         )

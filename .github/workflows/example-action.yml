@@ -1,0 +1,27 @@
+name: Example — using the mcptest action
+
+# Demonstrates the composite action defined in /action.yml at the repo root.
+# Users copy this workflow into their own MCP-server repo and change `command:`
+# to point at their server. We dogfood it here against the bundled demo server.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run mcptest against the bundled demo server
+        uses: ./
+        with:
+          command: "python -m mcp_test._demo_server"
+          test-dir: "tests/action_demo"
+          extras: "all"
+          pytest-args: "-v"
+          junit-xml: "mcptest-results.xml"

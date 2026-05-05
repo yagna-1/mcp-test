@@ -170,7 +170,7 @@ with HTTPMCPTestClient.from_url("http://localhost:8080") as client:
     result = client.call_tool("search", query="hello")
 ```
 
-Requires: `pip install mcp-test[http]`
+Requires: `pip install pytest-mcp-plugin[http]`
 
 ---
 

@@ -54,7 +54,7 @@ from .coverage import CoverageReport, CoverageTracker, PrimitiveCoverage
 from .runner import discover_command, discover_timeout, run_tests
 from .fixtures import fixture, make_sandboxed_client, seed_fixture_data
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "MCPTestClient",
